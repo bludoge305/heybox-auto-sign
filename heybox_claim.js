@@ -8,7 +8,9 @@ const {
   DATA_NAME,
   HeyboxAccount,
   HeyboxWebClient,
+  WEB_PROFILE,
 } = require("./src/heybox");
+const { validateCouponResult, couponBusinessMessage, couponResultMessage, isCouponLoginRequired, couponResponseError } = require("./src/heybox/coupon");
 
 exports.name = "小黑盒.普通领券";
 
@@ -17,41 +19,51 @@ const PATH_GET = "/mall/coupon/center/get/";
 
 const CONFIG = Object.freeze({
   delayMs: 300,
-  appVersion: "1.3.389",
+  appVersion: WEB_PROFILE.x_client_version,
   pageLimit: 20,
-  maxPages: 5,
+  maxPages: 500,
   sessionRetry: 1,
 });
 
-function resultMessage(payload) {
-  const status = tools.toText(payload?.status);
-  const msg = tools.toText(payload?.msg);
-  const rawResult = payload?.result;
-  if (typeof rawResult === "string") return rawResult;
-  const result = rawResult && typeof rawResult === "object" ? rawResult : {};
-  if (status && status !== "ok") return msg || status;
-  if (result.success === 1) return "success";
-  if (result.success === 2) return "pending";
-  return tools.toText(result.error_msg) || msg || JSON.stringify(payload).slice(0, 200);
+function validateCouponDetail(payload, requireSession = true) {
+  const result = validateCouponResult(payload, PATH_DETAIL, { requireSession });
+  if (result.success !== 1) throw couponResponseError(PATH_DETAIL, "券列表返回结果异常", payload);
+  if (!Array.isArray(result.games)) throw couponResponseError(PATH_DETAIL, "券列表缺少games数组", payload);
+  if (result.need_is_get !== 0 && result.need_is_get !== 1) {
+    throw couponResponseError(PATH_DETAIL, "券列表返回无效need_is_get", payload);
+  }
+  return result;
 }
 
 function isClaimableCoupon(item) {
-  return (
-    item &&
-    item.id !== undefined &&
-    item.id !== null &&
-    item.is_get !== true &&
-    item.is_limit !== true &&
-    String(item.state) === "0"
-  );
+  return !item.is_get && !item.is_limit && item.state === 0;
+}
+
+function validateCouponItem(item, payload) {
+  if (!item || typeof item !== "object" || Array.isArray(item) ||
+      !Number.isSafeInteger(item.id) || item.id <= 0 ||
+      !Number.isSafeInteger(item.state) ||
+      typeof item.is_get !== "boolean" || typeof item.is_limit !== "boolean") {
+    throw couponResponseError(PATH_DETAIL, "券列表包含无效券条目", payload);
+  }
+}
+
+function nextCouponCursor(result, payload) {
+  if (!Number.isSafeInteger(result.lastval) || result.lastval <= 0) {
+    throw couponResponseError(PATH_DETAIL, "券列表返回无效分页游标", payload);
+  }
+  return String(result.lastval);
 }
 
 async function loadTargets(client) {
   const targets = [];
   const seen = new Set();
-  let lastval = "";
+  const cursors = new Set();
+  let lastval = "0";
 
   for (let page = 1; page <= CONFIG.maxPages; page += 1) {
+    if (cursors.has(lastval)) throw new Error(`${PATH_DETAIL}: 券列表分页游标重复`);
+    cursors.add(lastval);
     const payload = await client.getJson(PATH_DETAIL, {
       query: {
         primary_id: "",
@@ -64,23 +76,35 @@ async function loadTargets(client) {
       },
       retries: 1,
     });
-    const result = payload?.result && typeof payload.result === "object" ? payload.result : {};
-    const session = tools.toText(result.session);
-    const games = Array.isArray(result.games) ? result.games : [];
+    const result = validateCouponDetail(payload, page === 1);
+    // 初页颁发会话，后续分页不要求重复颁发。
+    if (result.session !== undefined) {
+      if (!Number.isSafeInteger(result.session) || result.session <= 0) {
+        throw couponResponseError(PATH_DETAIL, "券列表返回无效session", payload);
+      }
+    }
+    const games = result.games;
     for (const item of games) {
+      validateCouponItem(item, payload);
       if (!isClaimableCoupon(item)) continue;
       const itemId = String(item.id);
       if (seen.has(itemId)) continue;
       seen.add(itemId);
       targets.push({
         itemId,
-        session,
         name: tools.toText(item.name),
         description: tools.toText(item.description),
       });
     }
-    const nextLastval = tools.toText(result.lastval);
-    if (!nextLastval || nextLastval === lastval || games.length === 0) break;
+    const nextLastval = nextCouponCursor(result, payload);
+    // 当前尾页会混入已领取券，处理本页未领取券后结束。
+    if (result.need_is_get === 1) return targets;
+    if (!games.length) throw couponResponseError(PATH_DETAIL, "空券列表仍返回分页游标", payload);
+    if (cursors.has(nextLastval)) throw couponResponseError(PATH_DETAIL, "券列表分页游标重复", payload);
+    if (page > 1 && Number(nextLastval) >= Number(lastval)) {
+      throw couponResponseError(PATH_DETAIL, "未领取券分页游标未递减", payload);
+    }
+    if (page === CONFIG.maxPages) throw couponResponseError(PATH_DETAIL, "券列表超过分页上限，请提高maxPages", payload);
     lastval = nextLastval;
   }
 
@@ -90,7 +114,7 @@ async function loadTargets(client) {
 async function claimCoupon(client, itemId, session) {
   return client.getJson(PATH_GET, {
     query: { item_id: itemId, session },
-    retries: 1,
+    retries: 0,
   });
 }
 
@@ -107,13 +131,7 @@ async function refreshClaimSession(client) {
     },
     retries: 1,
   });
-  const session = tools.toText(payload?.result?.session);
-  if (!session) throw new Error(`detail response missing session: ${JSON.stringify(payload).slice(0, 300)}`);
-  return session;
-}
-
-function isLoginRequired(message) {
-  return /请登录|登录后|未登录|登录态/.test(message);
+  return String(validateCouponDetail(payload).session);
 }
 
 function isPageExpired(message) {
@@ -125,14 +143,14 @@ async function claimWithFreshSession(client, target) {
   for (let attempt = 0; attempt <= CONFIG.sessionRetry; attempt += 1) {
     const session = await refreshClaimSession(client);
     const payload = await claimCoupon(client, target.itemId, session);
-    const message = resultMessage(payload);
+    const message = couponResultMessage(payload);
     lastPayload = payload;
-    if (!isPageExpired(message) || attempt >= CONFIG.sessionRetry) {
+    if (!isPageExpired(couponBusinessMessage(payload)) || attempt >= CONFIG.sessionRetry) {
       return { payload, message, refreshed: attempt > 0 };
     }
     await tools.sleep(200);
   }
-  return { payload: lastPayload, message: resultMessage(lastPayload), refreshed: true };
+  return { payload: lastPayload, message: couponResultMessage(lastPayload), refreshed: true };
 }
 
 async function runAccount(account) {
@@ -141,30 +159,45 @@ async function runAccount(account) {
   const targets = await loadTargets(client);
   if (!targets.length) {
     account.log("No claimable coupon found");
-    return;
+    account.log("领券汇总: 无可领券", { notify: true });
+    return { ok: true, okCount: 0, failCount: 0 };
   }
 
   account.log(`Claim targets: ${targets.map((target) => target.itemId).join(", ")}`);
+  let okCount = 0;
+  let failCount = 0;
   for (const target of targets) {
-    const result = await claimWithFreshSession(client, target);
+    let result;
+    try {
+      result = await claimWithFreshSession(client, target);
+    } catch (error) {
+      failCount += 1;
+      account.log(`领券失败: ${error.message}`, { notify: true });
+      break;
+    }
     const ok = result.payload?.status === "ok" && result.payload?.result?.success === 1;
+    if (ok) okCount += 1;
+    else failCount += 1;
     const title = target.name ? ` ${target.name}` : "";
     account.log(`item_id=${target.itemId}${title}: ${ok ? "OK" : "FAIL"} ${result.message}`);
-    if (!ok && isLoginRequired(result.message)) {
-      account.log("Stop: heybox_ck login state is invalid or expired");
+    if (!ok && isCouponLoginRequired(result.payload)) {
+      account.log("领券请求未通过登录验证，停止当前账号");
       break;
     }
     if (CONFIG.delayMs > 0) await tools.sleep(CONFIG.delayMs);
   }
+  account.log(`领券汇总: 成功${okCount}张${failCount ? `，失败${failCount}张` : ""}`, { notify: true });
+  return { ok: failCount === 0, okCount, failCount };
 }
 
 async function run() {
   if (!await $.read_env(HeyboxAccount, DATA_NAME)) return;
   for (const account of $.userList) {
     try {
-      await runAccount(account);
+      const result = await runAccount(account);
+      if (!result.ok) process.exitCode = 1;
     } catch (error) {
-      account.log(`领券失败: ${error.message}`);
+      account.log(`领券失败: ${error.message}`, { notify: true });
       process.exitCode = 1;
     }
   }

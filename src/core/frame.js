@@ -33,6 +33,7 @@ const $ = {
   userIdx: 0,
   userList: [],
   userCount: 0,
+  accountErrorCount: 0,
   notifyFlag: true,
   notifyTitle: "",
   notifyStr: [],
@@ -48,32 +49,38 @@ const $ = {
     this.args.push(...process.argv.slice(2));
   },
 
-  print_env(detail = false) {
+  print_env() {
     this.log("-------------------------");
     this.log("读取到的脚本变量:");
     const keys = Object.keys(this.env);
     for (const key of keys) {
-      if (!detail && (key === "data" || key.endsWith("_data") || key.includes("ck") || key.includes("token"))) {
-        this.log(`${key}: 已隐藏详细信息`);
-      } else {
-        this.log(`${key}: ${tools.mask(this.env[key])}`);
-      }
+      this.log(`${key}: ${this.env[key]}`);
     }
     this.log("-------------------------");
   },
 
   async read_env(AccountClass, dataName = null) {
-    this.print_env(false);
+    this.print_env();
     const keys = Array.isArray(dataName) ? dataName : [dataName].filter(Boolean);
     const values = [];
     for (const key of keys) values.push(...this.splitEnv(process.env[key]));
     if (this.env.data) values.push(...this.splitEnv(this.env.data));
     if (!values.length && this.args.length) values.push(...this.args);
 
+    if (!values.length) throw new Error(`缺少账号配置 ${keys.join(" / ") || "data"}`);
     for (const value of values) {
-      const user = new AccountClass(value);
-      user.index = ++this.userIdx;
-      this.userList.push(user);
+      const index = ++this.userIdx;
+      try {
+        const user = new AccountClass(value);
+        user.index = index;
+        this.userList.push(user);
+      } catch (error) {
+        this.accountErrorCount += 1;
+        process.exitCode = 1;
+        const message = `账号[${index}]初始化失败: ${error.message}`;
+        this.log(message);
+        this.notifyStr.push(message);
+      }
     }
     this.userCount = this.userList.length;
     this.log(`共读取到${this.userCount}个账号`);
@@ -104,7 +111,7 @@ const $ = {
     if (!list.length) return;
     try {
       const sendNotify = loadSendNotify();
-      await sendNotify(tools.mask(this.notifyTitle || `${this.name}通知`), list.map(tools.mask).join("\n"));
+      await sendNotify(this.notifyTitle || `${this.name}通知`, list.join("\n"));
       this.log(`通知已发送: ${list.length}条`);
     } catch (error) {
       this.log(`通知发送失败: ${error.message}`);

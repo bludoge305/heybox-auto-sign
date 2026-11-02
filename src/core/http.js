@@ -19,16 +19,27 @@ class HttpClient {
   }
 
   parseBody(text, url) {
+    let payload;
     try {
-      return text ? JSON.parse(text) : null;
+      payload = JSON.parse(text);
     } catch {
-      throw new Error(`JSON解析失败 ${url}: ${text.slice(0, 300)}`);
+      const error = new Error(`JSON解析失败 ${url}\nbody=${text}`);
+      error.rawbody = text;
+      throw error;
     }
+    if (payload === null || typeof payload !== "object") {
+      const error = new Error(`JSON响应必须为对象或数组 ${url}\nbody=${text}`);
+      error.rawbody = text;
+      throw error;
+    }
+    return tools.rememberResponseBody(payload, text);
   }
 
   async request(options) {
     const method = (options.method || "GET").toUpperCase();
-    const retries = Number.isInteger(options.retries) ? options.retries : this.defaultRetries;
+    const retries = Number.isInteger(options.retries)
+      ? options.retries
+      : (["GET", "HEAD", "OPTIONS"].includes(method) ? this.defaultRetries : 0);
     const headers = { ...this.defaultHeaders, ...(options.headers || {}) };
     const timeoutMs = options.timeoutMs || this.timeoutMs;
     const body = options.body !== undefined && typeof options.body !== "string"
@@ -48,7 +59,10 @@ class HttpClient {
         });
         const rawbody = response.body || "";
         if (response.statusCode < 200 || response.statusCode >= 300) {
-          throw new Error(`HTTP错误 ${response.statusCode} ${rawbody.slice(0, 300)}`);
+          const error = new Error(`HTTP错误 ${response.statusCode} ${options.url}\nbody=${rawbody}`);
+          error.statusCode = response.statusCode;
+          error.rawbody = rawbody;
+          throw error;
         }
         return {
           statusCode: response.statusCode,
@@ -57,6 +71,10 @@ class HttpClient {
           result: options.parseJson === false ? rawbody : this.parseBody(rawbody, options.url),
         };
       } catch (error) {
+        if (error.response?.body !== undefined && error.rawbody === undefined) {
+          error.rawbody = String(error.response.body);
+          error.message += `\nbody=${error.rawbody}`;
+        }
         if (attempt >= retries || !this.isRetryable(error)) throw error;
         await tools.sleep(500 * (attempt + 1));
       }

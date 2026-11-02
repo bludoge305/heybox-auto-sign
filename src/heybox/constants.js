@@ -1,6 +1,6 @@
 const API_BASE = "https://api.xiaoheihe.cn";
 const DATA_BASE = "https://data.xiaoheihe.cn";
-const HKEY_API = "https://hkey.qcciii.com/hkey";
+const HKEY_API = process.env.heybox_hkey_api || "https://hkey.qcciii.com/hkey";
 
 const APP_UA =
   "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2272.118 Safari/537.36 ApiMaxJia/1.0";
@@ -15,12 +15,8 @@ const APP_PROFILE = Object.freeze({
   os_type: "Android",
   x_os_type: "Android",
   x_client_type: "mobile",
-  os_version: "12",
-  dw: "360",
-  channel: "heybox",
   x_app: "heybox",
   time_zone: "Asia/Shanghai",
-  device_info: "HBP-AL00",
 });
 
 const WEB_PROFILE = Object.freeze({
@@ -29,7 +25,7 @@ const WEB_PROFILE = Object.freeze({
   x_app: "heybox",
   x_client_type: "web",
   x_os_type: "Android",
-  x_client_version: "1.3.389",
+  x_client_version: "1.3.393",
 });
 
 module.exports = {

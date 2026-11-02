@@ -1,7 +1,6 @@
 const { HttpClient, tools } = require("../core");
 const {
   API_BASE,
-  APP_PROFILE,
   APP_REFERER,
   APP_UA,
   DATA_BASE,
@@ -17,11 +16,57 @@ const {
   makeWebSignature,
 } = require("./signature");
 
+const APP_SIGNED_KEYS = new Set([
+  "heybox_id", "imei", "device_info", "nonce", "hkey", "_rnd", "_time",
+  "os_type", "x_os_type", "x_client_type", "os_version", "version", "build",
+  "dw", "channel", "x_app", "time_zone",
+]);
+
+function signatureError(message, payload) {
+  return new Error(`hkey接口${message}\nbody=${tools.responseBody(payload)}`);
+}
+
+function validateSignaturePayload(payload, timeSec, report = false) {
+  if (payload?.status !== OK_STATE) throw signatureError("请求失败", payload);
+  const result = payload.result;
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    throw signatureError("缺少result对象", payload);
+  }
+  if (!/^[0-9A-F]{1,8}$/.test(result.hkey || "")) throw signatureError("缺少有效hkey", payload);
+  if (!/^\d+:([0-9A-F]{1,8})$/.test(result._rnd || "")) throw signatureError("缺少有效_rnd", payload);
+  if (!/^\d+\.\d+\.\d+$/.test(result.version || "")) throw signatureError("缺少有效version", payload);
+  if (!/^[1-9]\d*$/.test(result.build || "")) throw signatureError("缺少有效build", payload);
+  if (result.time !== String(timeSec)) throw signatureError("返回时间与请求时间不一致", payload);
+  if (report) {
+    if (typeof result.data !== "string" || !result.data || typeof result.key !== "string" || !result.key ||
+        !/^[0-9a-f]{64}$/.test(result.sid || "")) {
+      throw signatureError("缺少有效data/key/sid", payload);
+    }
+  }
+  return result;
+}
+
 class HeyboxAppClient extends HttpClient {
   constructor(account, options = {}) {
-    super({ timeoutMs: options.timeoutMs || 15000, retries: options.retries || 0 });
+    super({ timeoutMs: options.timeoutMs || 15000, retries: options.retries ?? 0 });
     this.account = account;
     this.runtime = options.runtime || { version: "", build: "" };
+  }
+
+  signingInput(path, timeSec) {
+    const profile = this.account.appProfile;
+    for (const key of ["device_info", "os_version", "dw"]) {
+      if (!tools.toText(profile?.[key])) throw new Error(`账号配置缺少App请求字段${key}`);
+    }
+    if (!/^[\x21-\x7e]+$/.test(this.account.imei)) throw new Error("账号配置缺少有效App请求字段imei");
+    if (!/^[1-9]\d*$/.test(String(timeSec))) throw new Error("签名时间必须为正整数秒");
+    return {
+      path,
+      time: String(timeSec),
+      imei: this.account.imei,
+      heybox_id: this.account.heyboxId,
+      os_version: profile.os_version,
+    };
   }
 
   appHeaders(extra = {}) {
@@ -37,51 +82,33 @@ class HeyboxAppClient extends HttpClient {
   async requestHkey(path, timeSec = Math.floor(Date.now() / 1000)) {
     const query = buildQueryString({
       mode: "request",
-      path,
-      time: String(timeSec),
-      imei: this.account.imei,
-      heybox_id: this.account.heyboxId,
+      ...this.signingInput(path, timeSec),
     });
     const response = await this.get({
       url: `${HKEY_API}?${query}`,
       headers: { "User-Agent": APP_UA, Accept: "application/json" },
     });
-    const data = response.result;
-    const status = tools.toText(data?.status);
-    if (status && status !== OK_STATE) {
-      throw new Error(`hkey接口失败 status=${status} msg=${tools.toText(data?.msg) || "无"}`);
-    }
-    const result = data?.result && typeof data.result === "object" ? data.result : data;
-    const hkey = tools.toText(result?.hkey);
-    const version = tools.toText(result?.version);
-    const build = tools.toText(result?.build);
-    if (!hkey) throw new Error("hkey接口未返回hkey");
-    if (!version) throw new Error("hkey接口未返回version");
-    if (!/^\d+$/.test(build)) throw new Error("hkey接口未返回有效build");
-    return { hkey, version, build, time: String(timeSec) };
+    return validateSignaturePayload(response.result, timeSec);
   }
 
   buildSignedQuery(path, hkeyResult, extraQuery = {}) {
-    this.runtime.version = hkeyResult.version || this.runtime.version;
-    this.runtime.build = hkeyResult.build || this.runtime.build;
+    for (const key of Object.keys(extraQuery)) {
+      if (APP_SIGNED_KEYS.has(key)) throw new Error(`${path}: 业务参数不能覆盖签名字段${key}`);
+    }
+    this.runtime.version = hkeyResult.version;
+    this.runtime.build = hkeyResult.build;
     return {
+      ...extraQuery,
       heybox_id: this.account.heyboxId,
       imei: this.account.imei,
       device_info: this.account.deviceInfo,
       nonce: makeNonce(),
       hkey: hkeyResult.hkey,
-      os_type: APP_PROFILE.os_type,
-      x_os_type: APP_PROFILE.x_os_type,
-      x_client_type: APP_PROFILE.x_client_type,
-      os_version: APP_PROFILE.os_version,
+      _rnd: hkeyResult._rnd,
+      ...this.account.appProfile,
       version: this.runtime.version,
       build: this.runtime.build,
       _time: String(hkeyResult.time),
-      dw: APP_PROFILE.dw,
-      channel: APP_PROFILE.channel,
-      x_app: APP_PROFILE.x_app,
-      time_zone: APP_PROFILE.time_zone,
-      ...extraQuery,
     };
   }
 
@@ -102,50 +129,42 @@ class HeyboxAppClient extends HttpClient {
     const timeSec = Math.floor(Date.now() / 1000);
     const hk = await this.requestHkey(path, timeSec);
     const query = buildQueryString(this.buildSignedQuery(path, hk, extraQuery));
-    const body = bodyData ? buildQueryString(bodyData) : undefined;
+    const body = bodyData === undefined ? undefined : buildQueryString(bodyData);
     const response = await this.post({
       url: `${options.baseUrl || API_BASE}${path}?${query}`,
       headers: this.appHeaders({
-        ...(body ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+        ...(body !== undefined ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
         ...(options.headers || {}),
       }),
       body,
       timeoutMs: options.timeoutMs,
-      retries: options.retries,
+      retries: options.retries ?? 0,
     });
     return response.result;
   }
 
   async postEncryptedForm(path, textPayload, extraQuery = {}, options = {}) {
     const timeSec = String(Math.floor(Date.now() / 1000));
+    if (typeof textPayload !== "string") throw new Error("report数据必须为JSON字符串");
+    if (extraQuery.time_ !== undefined) throw new Error("业务参数不能覆盖report时间time_");
     const hkeyResponse = await this.post({
       url: HKEY_API,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         mode: "report",
-        path,
         text: textPayload,
-        time: timeSec,
-        imei: this.account.imei,
-        heybox_id: this.account.heyboxId,
+        ...this.signingInput(path, timeSec),
       }),
     });
-    const rp = hkeyResponse.result?.result || {};
-    if (rp.version) this.runtime.version = rp.version;
-    if (rp.build) this.runtime.build = rp.build;
-    const query = buildQueryString(this.buildSignedQuery(path, {
-      hkey: rp.hkey,
-      version: this.runtime.version,
-      build: this.runtime.build,
-      time: rp.time,
-    }, { time_: rp.time, ...extraQuery }));
+    const rp = validateSignaturePayload(hkeyResponse.result, timeSec, true);
+    const query = buildQueryString(this.buildSignedQuery(path, rp, { ...extraQuery, time_: timeSec }));
     const body = buildQueryString({ data: rp.data, key: rp.key, sid: rp.sid });
     const response = await this.post({
       url: `${options.baseUrl || DATA_BASE}${path}?${query}`,
       headers: this.appHeaders({ "Content-Type": "application/x-www-form-urlencoded", ...(options.headers || {}) }),
       body,
       timeoutMs: options.timeoutMs,
-      retries: options.retries,
+      retries: options.retries ?? 0,
     });
     return response.result;
   }
@@ -174,12 +193,20 @@ class HeyboxWebClient extends HttpClient {
   }
 
   buildQuery(path, query = {}) {
+    for (const key of ["hkey", "_rnd"]) {
+      if (Object.hasOwn(query, key)) throw new Error(`${path}: 业务参数不能覆盖签名字段${key}`);
+    }
+    const timeSec = query._time === undefined ? Math.floor(Date.now() / 1000) : Number(query._time);
+    if (!Number.isSafeInteger(timeSec) || timeSec <= 0) throw new Error(`${path}: 无效的签名时间`);
+    const signature = query.nonce === undefined
+      ? makeWebSignature(path, this.version, timeSec)
+      : makeWebSignature(path, this.version, timeSec, query.nonce);
     return {
       ...WEB_PROFILE,
       x_client_version: this.clientVersion,
-      heybox_id: this.account.heyboxId,
-      ...makeWebSignature(path, this.version),
       ...query,
+      ...signature,
+      heybox_id: this.account.heyboxId,
     };
   }
 
@@ -196,13 +223,13 @@ class HeyboxWebClient extends HttpClient {
 
   async postJson(path, options = {}) {
     const query = buildQueryString(this.buildQuery(path, options.query));
-    const body = options.body ? buildQueryString(options.body) : undefined;
+    const body = options.body === undefined ? undefined : buildQueryString(options.body);
     const response = await this.post({
       url: `${options.baseUrl || API_BASE}${path}?${query}`,
-      headers: this.headers(Boolean(body), options.headers),
+      headers: this.headers(body !== undefined, options.headers),
       body,
       timeoutMs: options.timeoutMs,
-      retries: options.retries,
+      retries: options.retries ?? 0,
     });
     return response.result;
   }

@@ -22,7 +22,7 @@ function makeWebNonce() {
 function buildQueryString(source) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(source || {})) {
-    if (value === undefined || value === null || value === "") continue;
+    if (value === undefined || value === null) continue;
     params.set(key, String(value));
   }
   return params.toString();

@@ -40,13 +40,18 @@ function safeFileName(input) {
   return toText(input).replace(/[\\/:*?"<>|\s]+/g, "_").slice(0, 120) || "default";
 }
 
-function mask(input) {
-  return toText(input)
-    .replace(/\b(1[3-9]\d)\d{4}(\d{4})\b/g, "$1****$2")
-    .replace(/(pkey=)[^;]+/gi, "$1<redacted>")
-    .replace(/(x_xhh_tokenid=)[^;]+/gi, "$1<redacted>")
-    .replace(/(hkey=)[^&\s]+/gi, "$1<redacted>")
-    .replace(/(nonce=)[^&\s]+/gi, "$1<redacted>");
+const responseBodies = new WeakMap();
+
+function rememberResponseBody(payload, rawbody) {
+  if (payload !== null && typeof payload === "object") responseBodies.set(payload, rawbody);
+  return payload;
+}
+
+function responseBody(payload) {
+  if (payload !== null && typeof payload === "object" && responseBodies.has(payload)) {
+    return responseBodies.get(payload);
+  }
+  return JSON.stringify(payload);
 }
 
 module.exports = {
@@ -56,5 +61,6 @@ module.exports = {
   time,
   log,
   safeFileName,
-  mask,
+  rememberResponseBody,
+  responseBody,
 };

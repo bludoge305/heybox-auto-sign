@@ -1,195 +1,58 @@
-# heybox
+# 小黑盒脚本
 
-小黑盒自动化脚本集合，基于 Node.js 实现，支持小黑盒每日任务、普通领券、定时抢券、0 元抽奖盒券等功能。
+| 脚本 | 功能 | 运行命令 |
+| --- | --- | --- |
+| `heybox_sign.js` | 签到、分享帖子、游戏详情和游戏评价，回查任务状态并输出 H 币 | `npm run heybox_sign` |
+| `heybox_claim.js` | 分页读取普通游戏券，刷新会话并领取可领券 | `npm run heybox_claim` |
+| `heybox_rush.js` | 发现限时券、解析开抢时间、预热会话和并发抢券 | `npm run heybox_rush` |
+| `heybox_roll.js` | 发现抽奖活动、完成关注和分享、参与抽奖并查询盒券 | `npm run heybox_roll` |
 
-> 仅供学习交流使用。请自行承担使用风险，并遵守小黑盒平台规则。Cookie 属于敏感信息，请勿泄露给他人或提交到公开仓库。
+## 安装
 
-## 功能概览
-
-| 脚本                | 功能                                | npm script             |
-| ----------------- | --------------------------------- | ---------------------- |
-| `heybox_sign.js`  | 每日签到、每日分享任务、H 币信息输出               | `npm run heybox_sign`  |
-| `heybox_claim.js` | 普通游戏优惠券自动领取                       | `npm run heybox_claim` |
-| `heybox_rush.js`  | 限时券/抢券任务，支持自动发现目标、定时窗口、多轮并发请求     | `npm run heybox_rush`  |
-| `heybox_roll.js`  | 0 元抽奖盒券任务，支持活动发现、前置任务处理、参与抽奖、分享任务 | `npm run heybox_roll`  |
-
-## 已支持任务
-
-### 每日任务：`heybox_sign.js`
-
-支持自动完成：
-
-| 任务          | 处理方式                 |
-| ----------- | -------------------- |
-| 签到          | 请求签到接口，并回查签到状态与奖励    |
-| 分享任意帖子到社交平台 | 拉取帖子流，模拟浏览时长，上报分享事件  |
-| 分享游戏详情到社交平台 | 拉取推荐游戏，发送游戏详情分享事件    |
-| 分享游戏评价到社交平台 | 拉取推荐游戏和评论，发送游戏评价分享事件 |
-
-其他能力：
-
-* 自动读取单账号或多账号 Cookie
-* 从 `pkey` 中解析 `heybox_id`
-* 根据 `pkey` 生成请求所需 `imei`
-* 通过 hkey 服务生成小黑盒 App 接口签名参数
-* 自动跳过已完成任务
-* 对未支持任务输出提示
-* 输出当前账号 H 币数量
-* 根据任务完成情况返回退出码
-
-### 普通领券：`heybox_claim.js`
-
-支持自动完成：
-
-* 拉取普通游戏券列表
-* 筛选可领取、未领取、未受限的券
-* 自动刷新领取所需 session
-* 逐个领取可领取优惠券
-* 登录态失效时停止当前账号任务
-
-### 定时抢券：`heybox_rush.js`
-
-支持自动完成：
-
-* 自动发现当前限时/特殊优惠券目标
-* 支持配置指定抢券目标
-* 从券标签中解析开抢时间
-* 支持统一指定抢券时间
-* 开抢前预热 session
-* 在开抢窗口内多轮请求
-* 支持多账号并发、单账号内多目标并发
-* 自动跳过已抢光、已结束、已领取、库存不足等终态目标
-
-默认抢券参数：
-
-| 参数               | 默认值    | 说明                  |
-| ---------------- | ------ | ------------------- |
-| `prewarmMs`      | `1500` | 开抢前 1.5 秒刷新 session |
-| `windowBeforeMs` | `300`  | 开抢前 0.3 秒进入请求窗口     |
-| `windowAfterMs`  | `5000` | 开抢后持续请求 5 秒         |
-| `intervalMs`     | `250`  | 请求轮次间隔              |
-| `maxRounds`      | `20`   | 最大请求轮数              |
-| `parallel`       | `6`    | 单轮最大并发数             |
-
-### 0 元抽奖盒券：`heybox_roll.js`
-
-支持自动完成：
-
-* 自动发现 0 元抽奖活动
-* 拉取活动详情和盒券列表
-* 自动处理部分前置任务
-* 自动参与抽奖
-* 自动完成分享活动任务
-* 输出活动任务状态和盒券状态
-
-当前前置任务支持情况：
-
-| 任务类型                  | 支持情况       |
-| --------------------- | ---------- |
-| `inject_js_for_count` | 支持，模拟停留后回查 |
-| `focus_on_homeowner`  | 支持，直接上报    |
-| `share_act`           | 支持，参与后执行分享 |
-| `add_to_wish_list`    | 暂不支持，自动跳过  |
-| `follow_game`         | 暂不支持，自动跳过  |
-| 其他未知任务                | 输出提示，不自动处理 |
-
-## 运行环境
-
-* Node.js
-* npm
-* 依赖包：`got`
-
-安装依赖：
+需要 Node.js 22 或以上版本。
 
 ```bash
 npm install
 ```
 
-单独安装依赖：
+## 账号配置
 
-```bash
-npm install got@^11.8.6
+环境变量 `heybox_ck` 填入 App 请求中的 Cookie。每日任务和抽奖任务需要 App 请求中的设备字段，直接附加在同一账号配置中。以下为 Android 配置示例：
+
+```text
+pkey=xxx;x_xhh_tokenid=xxx;imei=xxx;device_info=xxx;os_version=16;dw=411;channel=heybox_xiaomi;
 ```
 
-## 环境变量
+| 配置字段 | Android 来源 | iOS 来源 |
+| --- | --- | --- |
+| `pkey`、`x_xhh_tokenid` | 请求头 Cookie 中的同名字段 | 请求头 Cookie 中的同名字段 |
+| `imei` | 查询参数 `imei` | 查询参数 `device_id` 的原值 |
+| `device_info` | 请求中的设备型号 | 请求中的设备型号 |
+| `os_version` | 请求中的系统版本 | 请求中的系统版本 |
+| `dw` | 请求中的屏幕宽度 | 请求中的屏幕宽度 |
+| `channel` | 查询参数 `channel` 的原值 | 请求没有该字段时省略 |
 
-所有脚本共用一个环境变量：
+iOS 将 `device_id` 原值填入配置字段 `imei`。设备型号、系统版本和屏幕宽度均使用实际请求值。`channel` 不参与 `hkey`、`_rnd` 的算法计算，有值时按原值发送，没有时省略。
 
-```bash
-heybox_ck
-```
+使用 Reqable 获取 Cookie：保持小黑盒已登录，开启抓包后进入 **我 → 我的任务 → 我的钱包 → 明细**，搜索 `api.xiaoheihe.cn`，查看对应请求头的 `Cookie`，复制其中的 `pkey` 和 `x_xhh_tokenid`。
 
-值需要包含：
+账号 ID 从 `pkey` 解析。多个账号用换行或 `&` 分隔，每个账号配置自己的设备字段。
 
-```bash
-pkey=xxx;x_xhh_tokenid=xxx;
-```
+PowerShell 示例：
 
-### 单账号示例
-
-```bash
-export heybox_ck='pkey=xxx;x_xhh_tokenid=xxx;'
-```
-
-### 多账号示例
-
-支持换行分隔：
-
-```bash
-pkey=账号1;x_xhh_tokenid=账号1;
-pkey=账号2;x_xhh_tokenid=账号2;
-```
-
-也支持使用 `&` 分隔：
-
-```bash
-pkey=账号1;x_xhh_tokenid=账号1;&pkey=账号2;x_xhh_tokenid=账号2;
-```
-
-## 本地运行
-
-每日任务：
-
-```bash
-node heybox_sign.js
-```
-
-普通领券：
-
-```bash
-node heybox_claim.js
-```
-
-定时抢券：
-
-```bash
-node heybox_rush.js
-```
-
-0 元抽奖盒券：
-
-```bash
-node heybox_roll.js
-```
-
-也可以使用 npm scripts：
-
-```bash
+```powershell
+$env:heybox_ck = 'pkey=xxx;x_xhh_tokenid=xxx;imei=xxx;device_info=xxx;os_version=16;dw=411;channel=heybox_xiaomi;'
 npm run heybox_sign
-npm run heybox_claim
-npm run heybox_rush
-npm run heybox_roll
 ```
 
-## 青龙面板使用
+Linux 示例：
 
-拉取仓库后，在青龙环境变量中添加：
+```bash
+export heybox_ck='pkey=xxx;x_xhh_tokenid=xxx;imei=xxx;device_info=xxx;os_version=16;dw=411;channel=heybox_xiaomi;'
+npm run heybox_sign
+```
 
-| 名称          | 值                             |
-| ----------- | ----------------------------- |
-| `heybox_ck` | `pkey=xxx;x_xhh_tokenid=xxx;` |
-
-建议定时任务：
+青龙面板添加 `heybox_ck` 环境变量后，运行对应脚本：
 
 ```bash
 task heybox_sign.js
@@ -197,122 +60,27 @@ task heybox_claim.js
 task heybox_roll.js
 ```
 
-`heybox_rush.js` 属于定时抢券脚本，建议根据券的开抢时间单独配置定时任务，不建议只按固定每日任务运行。
+## 任务设置
 
-## 输出说明
+普通领券每页读取 20 张券，最多读取 500 页，逐张刷新会话并领取。
 
-每日任务输出示例：
+抢券设置在 `heybox_rush.js` 的 `CONFIG` 中：
 
-```text
-当前版本: 1.3.xxx build=xxxx
+| 配置 | 默认值 | 功能 |
+| --- | --- | --- |
+| `targets` | `[]` | 指定 `act_id:pool_id`；为空时读取当前券列表 |
+| `rushAt` | `""` | 指定北京时间，例如 `20:00` 或 `2026-10-27 20:00:00` |
+| `prewarmMs` | `1500` | 开抢前刷新会话的提前量 |
+| `windowBeforeMs` | `300` | 请求窗口提前量 |
+| `windowAfterMs` | `5000` | 开抢后的请求时长 |
+| `intervalMs` | `250` | 请求轮次间隔 |
+| `maxRounds` | `20` | 最大请求轮数 |
+| `parallel` | `6` | 单账号每轮并发数 |
 
-========== 账号1 ==========
-账号=昵称 黑盒ID=123456 IMEI=xxxxxxxxxxxxxxxx
-签到: 已完成 (+20经验 +20H币 +1盒电)
-分享任意帖子到社交平台: 已完成
-当前总H币: 123
+抽奖会根据活动返回的前置任务处理关注和分享，查询实际任务状态后参与。Steam 绑定、拥有游戏、愿望单、游戏关注和好友助力按活动要求由用户完成。
 
-完成: 1/1
-```
+## 输出与退出码
 
-普通领券输出示例：
+脚本输出账号任务状态、H 币、优惠券领取结果和抽奖盒券数量。HTTP、JSON、业务状态和响应结构异常会打印完整响应 body，不截断、不脱敏。
 
-```text
-开始领券 heybox_id=123456
-Claim targets: 10001, 10002
-item_id=10001 游戏名: OK success
-```
-
-抢券输出示例：
-
-```text
-抢券计划:
- 时间: 2026-01-01 12:00:00.0 (1张券)
- - ￥10 优惠券 pool=xxx act=xxx
- 刷新session: 2026-01-01 11:59:58.5
- 请求窗口: 2026-01-01 11:59:59.7 -> 2026-01-01 12:00:05.0
- 间隔: 250ms, 轮数: 20, 并发: 1
-```
-
-抽奖盒券输出示例：
-
-```text
-抽奖活动 award_id=xxx 活动名
-参与抽奖: {"status":"ok",...}
-分享活动: 已完成
-未自动处理任务: add_to_wish_list
-```
-
-## 退出码
-
-`heybox_sign.js` 会根据每日任务完成情况设置退出码：
-
-| 退出码 | 说明                   |
-| --- | -------------------- |
-| `0` | 所有账号核心任务均完成          |
-| `1` | 存在账号任务未完成、初始化失败或脚本异常 |
-
-其他脚本在异常时可能设置非 0 退出码，具体以运行日志为准。
-
-## 常见问题
-
-### 初始化失败：缺少环境变量 heybox_ck
-
-没有配置 `heybox_ck`，或当前运行环境没有读取到该变量。请检查变量名是否为小写：
-
-```bash
-heybox_ck
-```
-
-### 无法从 pkey 解析 heybox_id
-
-通常是 `pkey` 不完整、已过期或格式不正确。请重新抓取小黑盒 Cookie。
-
-### hkey 接口失败
-
-可能是外部 hkey 服务不可用、网络异常，或接口返回参数异常。可以稍后重试，或检查当前运行环境网络。
-
-### 任务执行后仍显示未完成
-
-可能原因：
-
-* 小黑盒接口延迟结算
-* Cookie 已失效
-* 小黑盒任务规则发生变化
-* 当前任务不在脚本支持范围内
-* 某些任务需要 App 原生行为，脚本无法完全模拟
-
-### 抽奖盒券提示心愿单任务不支持
-
-`add_to_wish_list`、`follow_game` 等心愿单相关任务目前不会自动完成，脚本会跳过并输出提示。
-
-### 抢券没有找到目标
-
-可能原因：
-
-* 当前没有可抢的限时券
-* 券已结束、已抢光或已领取
-* 接口返回结构发生变化
-* 需要手动配置 `targets`
-
-## 安全提示
-
-* 不要把真实 Cookie 写进 README、Issue、日志截图或公开仓库
-* 不要把 `heybox_ck` 提交到 Git
-* Cookie 失效后请重新抓取
-* 多账号运行时请确认每个账号格式完整
-
-## 项目结构
-
-```text
-.
-├── heybox_sign.js    # 每日签到与每日分享任务
-├── heybox_claim.js   # 普通领券
-├── heybox_rush.js    # 定时抢券
-├── heybox_roll.js    # 0 元抽奖盒券
-├── package.json
-├── package-lock.json
-└── src/
-    ├── core/         # 通用运行框架、HTTP、工具函数
-    └── heybox/       # 小黑盒账号、接口、签名、上报等封装
-```
+存在账号初始化失败、请求失败或可执行任务未完成时退出码为 `1`，全部执行成功时为 `0`。没有可领券或进行中的抽奖活动时正常结束。配置 `sendNotify.js` 后发送执行结果通知。

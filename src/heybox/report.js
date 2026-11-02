@@ -15,6 +15,7 @@ const WEB_REPORT_PUBLIC_KEY = [
 ].join("\n");
 const WEB_REPORT_IV = "abcdefghijklmnop";
 const WEB_REPORT_KEY_CHARS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
+const WEB_REPORT_SESSION_ID = `session-${crypto.randomUUID()}`;
 
 function buildShareEventReport(action, source, extra = {}) {
   return JSON.stringify({
@@ -45,11 +46,11 @@ function randomWebReportKey() {
   return key;
 }
 
-function sha1(input) {
-  return crypto.createHash("sha1").update(String(input)).digest("hex");
+function md5(input) {
+  return crypto.createHash("md5").update(String(input)).digest("hex");
 }
 
-function encryptWebReport(payload, reverseSid = true) {
+function encryptWebReport(payload) {
   const aesKey = randomWebReportKey();
   const timeSec = Math.floor(Date.now() / 1000);
   const cipher = crypto.createCipheriv(
@@ -69,7 +70,7 @@ function encryptWebReport(payload, reverseSid = true) {
     Buffer.from(aesKey),
   ).toString("base64");
   return {
-    sid: reverseSid ? sha1(data + timeSec) + sha1(key) : sha1(key + timeSec) + sha1(data),
+    sid: md5(data + timeSec) + md5(key),
     key,
     data,
     timeSec,
@@ -77,11 +78,12 @@ function encryptWebReport(payload, reverseSid = true) {
 }
 
 async function postWebEncryptedReport(webClient, reportPayload, extraQuery = {}) {
-  const encrypted = encryptWebReport(reportPayload, true);
+  const encrypted = encryptWebReport(reportPayload);
   return webClient.postJson(PATH_DATA_REPORT_WEB, {
     query: {
       type: 104,
       time_: encrypted.timeSec,
+      session_id: WEB_REPORT_SESSION_ID,
       ...extraQuery,
     },
     body: {
@@ -103,7 +105,7 @@ async function sendShareEvents(appClient, source, extra = {}) {
       { baseUrl: DATA_BASE },
     );
     if (!isOkPayload(resp)) {
-      throw new Error(`分享 ${action} 上报失败 status=${tools.toText(resp?.status)} msg=${tools.toText(resp?.msg)}`);
+      throw new Error(`分享 ${action} 上报失败 status=${tools.toText(resp?.status)} msg=${tools.toText(resp?.msg)}\nbody=${tools.responseBody(resp)}`);
     }
     if (action === "tap") await tools.sleep(2000);
   }
@@ -126,7 +128,7 @@ async function sendWebShareEvent(webClient, action = "visit", source = "/store/r
   };
   const resp = await postWebEncryptedReport(webClient, payload);
   if (!isOkPayload(resp)) {
-    throw new Error(`web_share ${action} 上报失败 status=${tools.toText(resp?.status)} msg=${tools.toText(resp?.msg)}`);
+    throw new Error(`web_share ${action} 上报失败 status=${tools.toText(resp?.status)} msg=${tools.toText(resp?.msg)}\nbody=${tools.responseBody(resp)}`);
   }
   return resp;
 }
