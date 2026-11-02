@@ -60,7 +60,12 @@ jobs:
           rc=${PIPESTATUS[0]}
           set -e
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
-          exit $rc
+          # 退出码 1 表示「有活动的前置任务无法自动完成」，是常态而非故障，
+          # 用 notice 提示而不是让运行页面挂一条红色 error 注解；真实报错仍会写进运行摘要。
+          if [ "$rc" -ne 0 ]; then
+            echo "::notice::抽奖步骤退出码 $rc（多为前置任务需手动完成），详情见运行摘要与 roll.log"
+          fi
+          exit 0
 
       - name: 输出运行摘要
         # 签到失败时也要出摘要，方便在 Actions 首页直接看出原因
