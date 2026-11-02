@@ -50,8 +50,9 @@ function mask(input) {
     .replace(/(hkey=)[^&\s]+/gi, "$1<redacted>")
     .replace(/(nonce=)[^&\s]+/gi, "$1<redacted>")
     .replace(/(_rnd=)[^&\s]+/gi, "$1<redacted>")
-    // 帮助码形如 25287644.9386（含账号 ID），= 与 "help_code":"..." 两种形态都覆盖
+    // 帮助码形如 25287644.9386（含账号 ID），= / "help_code":"..." / URL 编码 %3D 三种形态都覆盖
     .replace(/(help_code\\?"?\s*[:=]\s*\\?"?)(\d{5,})/gi, "$1<redacted>")
+    .replace(/(help_code%(?:25)*3D)(\d{5,})/gi, "$1<redacted>")
     // 接口 body 里的账号 ID / 设备号（仅 JSON 形态，普通文本里的 H 币等数字不受影响）
     .replace(/(\\?"(?:x_)?heybox_id\\?"\s*:\s*)\\?"?(\d{5,})\\?"?/gi, '$1"<redacted>"')
     .replace(/(\\?"imei\\?"\s*:\s*)\\?"?([0-9a-f]{10,})\\?"?/gi, '$1"<redacted>"');
