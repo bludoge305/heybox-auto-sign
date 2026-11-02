@@ -10,7 +10,7 @@
 
 - 本地已有可运行的 `heybox-auto-sign/` 项目（本目录）。
 - 已有一个 GitHub 账号。
-- 本地 `cookie.txt` 里是正确的 App cookie（`pkey=...;x_xhh_tokenid=...;`，从手机抓的）。
+- 本地 `cookie.txt` 里是正确的 App 请求字段（从手机抓的，至少包含 `pkey`、`x_xhh_tokenid`、`imei`、`device_info`、`os_version`、`dw`）。
 
 ---
 
@@ -36,8 +36,10 @@
 
 1. 进入你的仓库 → **Settings → Secrets and variables → Actions → New repository secret**。
 2. Name 填：`HEYBOX_CK`
-3. Secret 内容填：**`cookie.txt` 里的那一行**（形如 `pkey=xxxx;x_xhh_tokenid=yyyy;`）。
+3. Secret 内容填：**`cookie.txt` 里的那一行**（形如 `pkey=xxxx;x_xhh_tokenid=yyyy;imei=xxx;device_info=xxx;os_version=16;dw=411;`）。
    - 不要带换行，就是单行。
+   - `imei`、`device_info`、`os_version`、`dw` 必须来自**你自己手机的同一次真实请求**，缺任意一个脚本会直接报「账号配置缺少App请求字段」。
+   - 可选 `channel=heybox_xiaomi`（iOS 无此字段则省略）。
    - 本地可在项目目录执行 `type cookie.txt`（Windows）/`cat cookie.txt`（mac/Linux）复制。
 4. 保存。
 
@@ -82,3 +84,4 @@ git push mine main
 - **免费额度**：公开仓库 Actions 免费；私有仓库有每月额度，单脚本每日跑一次完全够用。
 - **扩展**：想顺便自动领奖，可在工作流里再加一步 `node heybox_claim.js`（同样依赖 `HEYBOX_CK`）。
 - **依赖外部签名服务** `hkey.qcciii.com`，若其不可用，签到会失败。
+- **同步上游**：本仓库已合并 `yowiv08/heybox` 最新代码（含 `_rnd` 签名校验、真实设备字段要求）。日后再次同步执行 `git fetch upstream main && git merge upstream/main` 即可（两仓库历史互不相关，首次合并用了 `--allow-unrelated-histories`）。

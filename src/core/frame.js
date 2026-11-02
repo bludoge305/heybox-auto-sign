@@ -54,7 +54,7 @@ const $ = {
     this.log("读取到的脚本变量:");
     const keys = Object.keys(this.env);
     for (const key of keys) {
-      this.log(`${key}: ${this.env[key]}`);
+      this.log(`${key}: ${tools.mask(this.env[key])}`);
     }
     this.log("-------------------------");
   },

@@ -40,6 +40,17 @@ function safeFileName(input) {
   return toText(input).replace(/[\\/:*?"<>|\s]+/g, "_").slice(0, 120) || "default";
 }
 
+// 日志脱敏：避免 cookie / token / 签名参数被写进 Actions 日志或本地日志文件
+function mask(input) {
+  return toText(input)
+    .replace(/\b(1[3-9]\d)\d{4}(\d{4})\b/g, "$1****$2")
+    .replace(/(pkey=)[^;&\s]+/gi, "$1<redacted>")
+    .replace(/(x_xhh_tokenid=)[^;&\s]+/gi, "$1<redacted>")
+    .replace(/(hkey=)[^&\s]+/gi, "$1<redacted>")
+    .replace(/(nonce=)[^&\s]+/gi, "$1<redacted>")
+    .replace(/(_rnd=)[^&\s]+/gi, "$1<redacted>");
+}
+
 const responseBodies = new WeakMap();
 
 function rememberResponseBody(payload, rawbody) {
@@ -61,6 +72,7 @@ module.exports = {
   time,
   log,
   safeFileName,
+  mask,
   rememberResponseBody,
   responseBody,
 };
