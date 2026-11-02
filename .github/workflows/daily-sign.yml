@@ -7,11 +7,17 @@ on:
     - cron: '30 1 * * *'
   workflow_dispatch: {}   # 允许在 Actions 页面手动触发
 
+# 同一时间只保留一个实例，避免手动触发与定时任务撞车导致重复签到
+concurrency:
+  group: heybox-daily-sign
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
 jobs:
   sign:
+    name: 执行签到
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -28,14 +34,43 @@ jobs:
         run: npm ci
 
       - name: Run 小黑盒签到
+        id: sign
         env:
           heybox_ck: ${{ secrets.HEYBOX_CK }}
-        run: node heybox_sign.js
+        # 管道会吞掉退出码（$? 变成 tee 的），这里用 PIPESTATUS 精确取 node 的退出码，
+        # 否则签到失败也会被判为 success。日志同时落盘，供后面的摘要步骤解析。
+        run: |
+          set +e
+          node heybox_sign.js 2>&1 | tee sign.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit $rc
 
       - name: Run 0元抽奖盒券
+        id: roll
         # 抽奖活动常含 Steam 拥有游戏 / 好友助力 / 购买 DLC 等脚本做不了的前置任务，
         # 只要有活动未完成 roll 就会返回 1。签到才是核心，这里不阻断整条工作流。
         continue-on-error: true
         env:
           heybox_ck: ${{ secrets.HEYBOX_CK }}
-        run: node heybox_roll.js
+        run: |
+          set +e
+          node heybox_roll.js 2>&1 | tee roll.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit $rc
+
+      - name: 输出运行摘要
+        # 签到失败时也要出摘要，方便在 Actions 首页直接看出原因
+        if: always()
+        env:
+          SIGN_RC: ${{ steps.sign.outputs.rc }}
+          ROLL_RC: ${{ steps.roll.outputs.rc }}
+        run: |
+          node scripts/summarize.js --sign sign.log --roll roll.log > summary.md || true
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+          echo "---------- 运行摘要 ----------"
+          cat summary.md
+          echo "签到退出码=${SIGN_RC:-未知} 抽奖退出码=${ROLL_RC:-未知}"

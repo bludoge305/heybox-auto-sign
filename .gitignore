@@ -4,3 +4,9 @@ node_modules/
 xhh_data.tar
 xhh_extract/
 token_dump/
+# Actions / 本地调试产物
+sign.log
+roll.log
+summary.md
+.tmp_logs/
+.workbuddy/

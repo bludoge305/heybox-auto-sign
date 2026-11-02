@@ -59,7 +59,7 @@ git remote add mine https://github.com/你的用户名/heybox.git
 git remote add mine https://github.com/你的用户名/heybox-auto-sign.git
 
 # 暂存并推送我们自己新增的文件（cookie.txt / sign_log.txt 已被 .gitignore 排除，不会上传）
-git add .github/workflows/daily-sign.yml GITHUB_ACTIONS.md .gitignore dump_token.py run_sign.bat scan_token.py
+git add .github/workflows/daily-sign.yml GITHUB_ACTIONS.md .gitignore dump_token.py run_sign.bat scan_token.py scripts/
 git commit -m "feat: add GitHub Actions auto-sign + token tools"
 git push mine main
 ```
@@ -71,13 +71,56 @@ git push mine main
 1. 仓库 → **Settings → Actions → General → Workflow permissions** 确认允许运行（默认即可）。
 2. 仓库 → **Actions** 标签页，应能看到 `小黑盒每日签到` 工作流。
 3. 点 **Run workflow** 手动跑一次验证：
-   - 绿色 ✓ = 成功，日志里能看到 `签到: 已完成` 和 `完成: 1/1`。
+   - 绿色 ✓ = 成功，日志里能看到 `签到: 已完成` 和 `完成: 1/1`，页面底部会生成「小黑盒每日任务」运行摘要。
    - 红色 ✗ = 检查 Secret 是否正确、cookie 是否过期。
 4. 之后每天 UTC 01:30（北京 09:30）自动跑。
 
 ---
 
-## 六、注意事项
+## 六、运行摘要（Actions 页面自动生成）
+
+每次运行结束后，Actions 运行页面的 **Summary** 区会自动生成一张表格，不用翻日志就能看到结果：
+
+```
+## 小黑盒每日任务
+
+**✅ 签到成功**
+
+| 项目 | 值 |
+| --- | --- |
+| 运行时间 | 2026-11-02 22:18 (UTC+8) |
+| 任务完成 | 1/1 |
+| 账号 | **bludoge**（25287644） |
+| 当前 H 币 | 5573 |
+| 客户端版本 | 1.3.399 build=1148 |
+| 抽奖活动 | 进行中 7 个，参与成功 1 个 |
+
+### 每日任务
+| 任务 | 状态 | 奖励 |
+| --- | --- | --- |
+| 签到 | ✅ 已完成 | +30经验 +30H币 +1盒电 |
+| 分享任意帖子到社交平台 | ✅ 已完成 | +10经验 +100H币 +1盒电 |
+```
+
+抽奖部分会折叠成 `<details>`，展开可看每个活动的参与状态。
+
+实现方式：
+
+- 工作流把两个脚本的输出分别 `tee` 到 `sign.log` / `roll.log`（同时用 `PIPESTATUS` 保住退出码，避免管道吞错）；
+- `scripts/summarize.js` 解析日志，输出 Markdown 到 `$GITHUB_STEP_SUMMARY`；
+- 摘要步骤用 `if: always()`，签到失败时同样出摘要，并直接标红报错原因（如 cookie 过期、缺少设备字段）。
+
+**摘要只写入白名单字段**（昵称 / 黑盒 ID / 任务状态 / H 币 / 活动状态，IMEI 中间位打码），不写入接口原始响应 —— 摘要会长期留存在 Actions 页面，原始 body 里含有 `help_code` 等信息，不适合公开展示。
+
+本地也可单独预览摘要：
+
+```bash
+node scripts/summarize.js --sign sign.log --roll roll.log
+```
+
+---
+
+## 七、注意事项
 
 - **定时精度**：GitHub cron 可能延迟几分钟；若仓库 **60 天无任何提交/活动**，定时任务会被自动停用——届时手动 push 一次或重新 enable 即可。
 - **私有仓库**：强烈建议 Private，避免 cookie 逻辑和账号暴露（即使 cookie 在 Secret 里，仓库公开也会增加风险）。
