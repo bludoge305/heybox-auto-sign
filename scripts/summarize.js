@@ -27,7 +27,8 @@ function parseArgs(argv) {
 
 const ANSI = /\x1b\[[0-9;]*m/g;
 const TS_PREFIX = /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]\s*/;
-const ACCOUNT_PREFIX = /^账号\[(\d+)\]\[(\d+)\](.*)$/;
+// 账号 ID 在日志里已打码成 2528****，这里两种形态都要认
+const ACCOUNT_PREFIX = /^账号\[(\d+)\]\[([\d*]+)\](.*)$/;
 
 // 框架噪音或超长 body，一律丢掉
 const NOISE = [
@@ -73,6 +74,7 @@ function trimEnd(text) {
 
 function maskImei(imei) {
   const text = String(imei || "");
+  if (text.includes("*")) return text; // 脚本已经打过码
   if (text.length < 10) return text || "-";
   return `${text.slice(0, 4)}****${text.slice(-4)}`;
 }
@@ -109,7 +111,7 @@ function parseSign(entries) {
       continue;
     }
     if (index) {
-      let m = text.match(/^账号=(\S+)\s+黑盒ID=(\d+)\s+IMEI=(\S+)/);
+      let m = text.match(/^账号=(\S+)\s+黑盒ID=([\d*]+)\s+IMEI=(\S+)/);
       if (m) {
         const account = accountOf(index, m[2]);
         account.name = m[1];

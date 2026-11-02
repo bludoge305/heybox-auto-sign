@@ -410,7 +410,7 @@ async function executePlan(accounts, clients, plan, shouldPrint = true) {
   await waitUntil(timing.prewarmAtMs);
   const sessions = await Promise.all(accounts.map(async (account, index) => {
     const client = clients[index];
-    account.log(`预热 session heybox_id=${account.heyboxId}`);
+    account.log(`预热 session heybox_id=${tools.maskId(account.heyboxId)}`);
     try {
       const session = await refreshSession(client);
       account.log("抢券会话预热完成");

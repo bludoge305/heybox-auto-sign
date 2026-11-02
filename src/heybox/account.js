@@ -1,4 +1,4 @@
-const { BasicAccount } = require("../core");
+const { BasicAccount, tools } = require("../core");
 const { APP_PROFILE } = require("./constants");
 const {
   buildAppCookie,
@@ -13,7 +13,8 @@ class HeyboxAccount extends BasicAccount {
     const heyboxId = decodePkeyToUserId(rawData);
     if (!heyboxId) throw new Error("无法从pkey解析heybox_id");
     this.heyboxId = heyboxId;
-    this.name = heyboxId;
+    // 日志前缀用打码后的 ID，真实 ID 只用于请求参数
+    this.name = tools.maskId(heyboxId);
     const fields = parseCookieMap(rawData);
     this.imei = fields.get("imei") || "";
     this.deviceInfo = fields.get("device_info") || "";

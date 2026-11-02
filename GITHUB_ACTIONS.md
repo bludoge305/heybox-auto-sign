@@ -126,5 +126,6 @@ node scripts/summarize.js --sign sign.log --roll roll.log
 - **私有仓库**：强烈建议 Private，避免 cookie 逻辑和账号暴露（即使 cookie 在 Secret 里，仓库公开也会增加风险）。
 - **免费额度**：公开仓库 Actions 免费；私有仓库有每月额度，单脚本每日跑一次完全够用。
 - **扩展**：想顺便自动领奖，可在工作流里再加一步 `node heybox_claim.js`（同样依赖 `HEYBOX_CK`）。
+- **日志脱敏**：所有输出都经过 `src/core/tools.js` 的 `mask()`，cookie、`x_xhh_tokenid`、`hkey`、`nonce`、`_rnd` 以及账号 ID（`2528****`）、IMEI（`244b****185f`）、接口 body 里的 `help_code` / `heybox_id` / `imei` 都会打码，因此**公开仓库的 Actions 日志也不会暴露账号标识**。
 - **依赖外部签名服务** `hkey.qcciii.com`，若其不可用，签到会失败。
 - **同步上游**：本仓库已合并 `yowiv08/heybox` 最新代码（含 `_rnd` 签名校验、真实设备字段要求）。日后再次同步执行 `git fetch upstream main && git merge upstream/main` 即可（两仓库历史互不相关，首次合并用了 `--allow-unrelated-histories`）。

@@ -444,7 +444,7 @@ async function runAccount(account, runtime) {
   let snapshot = await fetchSnapshot(client);
   const expectedTaskKeys = snapshot.tasks.filter((task) => isDailyTask(task) || TASK_HANDLERS[task.taskId]).map(taskKey);
   const fetchCurrentSnapshot = () => fetchSnapshot(client, expectedTaskKeys);
-  account.log(`账号=${snapshot.nickname || account.heyboxId} 黑盒ID=${account.heyboxId} IMEI=${account.imei}`);
+  account.log(`账号=${snapshot.nickname || tools.maskId(account.heyboxId)} 黑盒ID=${tools.maskId(account.heyboxId)} IMEI=${tools.maskImei(account.imei)}`);
 
   const unsupported = new Set();
   const done = new Set();

@@ -33,7 +33,8 @@ function time(format = "yyyy-MM-dd hh:mm:ss", input = Date.now()) {
 
 function log(message, options = {}) {
   const prefix = options.time ? `[${time()}] ` : "";
-  console.log(`${prefix}${message}`);
+  // 所有输出都走这里，统一过一遍脱敏：cookie/签名参数/账号 ID/help_code 都不会以明文进日志
+  console.log(`${prefix}${mask(message)}`);
 }
 
 function safeFileName(input) {
@@ -48,7 +49,26 @@ function mask(input) {
     .replace(/(x_xhh_tokenid=)[^;&\s]+/gi, "$1<redacted>")
     .replace(/(hkey=)[^&\s]+/gi, "$1<redacted>")
     .replace(/(nonce=)[^&\s]+/gi, "$1<redacted>")
-    .replace(/(_rnd=)[^&\s]+/gi, "$1<redacted>");
+    .replace(/(_rnd=)[^&\s]+/gi, "$1<redacted>")
+    // 帮助码形如 25287644.9386（含账号 ID），= 与 "help_code":"..." 两种形态都覆盖
+    .replace(/(help_code\\?"?\s*[:=]\s*\\?"?)(\d{5,})/gi, "$1<redacted>")
+    // 接口 body 里的账号 ID / 设备号（仅 JSON 形态，普通文本里的 H 币等数字不受影响）
+    .replace(/(\\?"(?:x_)?heybox_id\\?"\s*:\s*)\\?"?(\d{5,})\\?"?/gi, '$1"<redacted>"')
+    .replace(/(\\?"imei\\?"\s*:\s*)\\?"?([0-9a-f]{10,})\\?"?/gi, '$1"<redacted>"');
+}
+
+// 账号 ID 打码：保留前 4 位（25287644 -> 2528****），既能对上账号又不暴露完整 ID
+function maskId(input) {
+  const text = toText(input);
+  if (!/^\d{5,}$/.test(text)) return text;
+  return `${text.slice(0, 4)}****`;
+}
+
+// IMEI 打码：保留首尾各 4 位（244bd9cbc17e185f -> 244b****185f）
+function maskImei(input) {
+  const text = toText(input);
+  if (text.length < 10) return text;
+  return `${text.slice(0, 4)}****${text.slice(-4)}`;
 }
 
 const responseBodies = new WeakMap();
@@ -73,6 +93,8 @@ module.exports = {
   log,
   safeFileName,
   mask,
+  maskId,
+  maskImei,
   rememberResponseBody,
   responseBody,
 };

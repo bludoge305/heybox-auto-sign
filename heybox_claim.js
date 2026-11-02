@@ -155,7 +155,7 @@ async function claimWithFreshSession(client, target) {
 
 async function runAccount(account) {
   const client = new HeyboxWebClient(account);
-  account.log(`开始领券 heybox_id=${account.heyboxId}`);
+  account.log(`开始领券 heybox_id=${tools.maskId(account.heyboxId)}`);
   const targets = await loadTargets(client);
   if (!targets.length) {
     account.log("No claimable coupon found");
