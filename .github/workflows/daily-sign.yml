@@ -33,6 +33,9 @@ jobs:
         run: node heybox_sign.js
 
       - name: Run 0元抽奖盒券
+        # 抽奖活动常含 Steam 拥有游戏 / 好友助力 / 购买 DLC 等脚本做不了的前置任务，
+        # 只要有活动未完成 roll 就会返回 1。签到才是核心，这里不阻断整条工作流。
+        continue-on-error: true
         env:
           heybox_ck: ${{ secrets.HEYBOX_CK }}
         run: node heybox_roll.js
