@@ -10,3 +10,6 @@ roll.log
 summary.md
 .tmp_logs/
 .workbuddy/
+
+# 巡检技能的本机私密配置（含 GitHub token）
+skills/heybox-action-checkin/config.local.json

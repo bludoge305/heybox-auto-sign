@@ -1,0 +1,9 @@
+{
+  "repo": "bludoge305/heybox-auto-sign",
+  "workflow_file": "daily-sign.yml",
+  "ref": "main",
+  "token": "",
+  "timezone_offset_hours": 8,
+  "dispatch_wait_seconds": 150,
+  "run_wait_seconds": 360
+}

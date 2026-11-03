@@ -129,3 +129,24 @@ node scripts/summarize.js --sign sign.log --roll roll.log
 - **日志脱敏**：所有输出都经过 `src/core/tools.js` 的 `mask()`，cookie、`x_xhh_tokenid`、`hkey`、`nonce`、`_rnd` 以及账号 ID（`2528****`）、IMEI（`244b****185f`）、接口 body 里的 `help_code` / `heybox_id` / `imei` 都会打码，因此**公开仓库的 Actions 日志也不会暴露账号标识**。
 - **依赖外部签名服务** `hkey.qcciii.com`，若其不可用，签到会失败。
 - **同步上游**：本仓库已合并 `yowiv08/heybox` 最新代码（含 `_rnd` 签名校验、真实设备字段要求）。日后再次同步执行 `git fetch upstream main && git merge upstream/main` 即可（两仓库历史互不相关，首次合并用了 `--allow-unrelated-histories`）。
+
+---
+
+## 八、签到巡检技能（可选）
+
+`skills/heybox-action-checkin/` 是一个 WorkBuddy 技能：判断「今天在 Actions 上跑了没」，没跑或跑挂了就用 PAT 补触发，最后把 Job Summary 原样带回来。
+
+```bash
+python skills/heybox-action-checkin/scripts/watch.py
+```
+
+| STATUS | 退出码 | 含义 |
+| --- | --- | --- |
+| `OK` | 0 | 今天已有成功运行，不重复触发 |
+| `RETRIGGERED` | 0 | 原本没跑/上次失败，已补触发并成功 |
+| `FALLBACK` | 1 | Actions 没签成，应转本地 `heybox-sign` 补签 |
+| `ERROR` | 2 | token 过期 / 网络 / 配置问题 |
+
+配置分两层：`config.json` 可进版本库（token 留空），`config.local.json` 放本机 token（已 gitignore），也支持环境变量 `GITHUB_PAT`。
+
+配合 cron-job.org 使用时的分工：09:30 由 cron-job.org 触发签到，09:40 由本技能巡检并回传摘要；Actions 失败才落回本地脚本，避免重复签到。
