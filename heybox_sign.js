@@ -37,6 +37,9 @@ const PATH_VIEW_TIME = "/bbs/app/link/view/time";
 const POST_SHARE_VIEW_SECONDS = 5;
 const POST_SHARE_VIEW_MILLISECONDS = 5000;
 const SHARE_TASK_SETTLE_MS = 2200;
+// 签到回查节奏：服务端结算可能滞后几十秒，逐次拉长间隔，累计约 60 秒
+const SIGN_POLL_DELAYS = [2000, 3000, 4000, 6000, 8000, 10000, 12000, 15000];
+const SIGN_SETTLE_MS = 1500;
 const TASK_LIST_ERROR_CODE = "HEYBOX_TASK_LIST_INVALID";
 const DAILY_SHARE_TASK_IDS = Object.freeze(["1", "19", "31"]);
 
@@ -275,26 +278,72 @@ async function settleShareTask(task, fetchSnapshotFn, detail) {
   return { ok: false, message: responseFailure(`${task.title} 未完成`, snapshot.payload) };
 }
 
+async function readSignState(client) {
+  const payload = await client.getJson(PATH_STATE);
+  return {
+    payload,
+    status: tools.toText(payload?.status),
+    state: tools.toText(payload?.result?.state),
+    result: payload?.result || {},
+  };
+}
+
+// state=ok 表示今天已签到，ignore 表示签到接口认为无需再签
+function isSignFinished(snapshot) {
+  return Boolean(snapshot) && snapshot.status === OK_STATE && (snapshot.state === OK_STATE || snapshot.state === "ignore");
+}
+
+function signRewardText(result) {
+  const parts = [];
+  if (result?.sign_in_coin) parts.push(`+${result.sign_in_coin}H币`);
+  if (result?.sign_in_exp) parts.push(`+${result.sign_in_exp}经验`);
+  if (result?.sign_in_streak) parts.push(`连签${result.sign_in_streak}天`);
+  return parts.join(" ");
+}
+
+async function waitSignState(client, delays) {
+  let last = null;
+  for (const delay of delays) {
+    await tools.sleep(delay);
+    last = await readSignState(client);
+    if (isSignFinished(last)) return last;
+  }
+  return last;
+}
+
 async function executeSign(client) {
   const signResp = await client.getJson(PATH_SIGN);
-  if (!isOkPayload(signResp)) {
-    return { ok: false, message: responseFailure(tools.toText(signResp?.msg) || tools.toText(signResp?.status) || "签到失败", signResp) };
+  const signState = tools.toText(signResp?.result?.state);
+  if (isOkPayload(signResp) && signState === "ignore") {
+    return { ok: true, message: "今日已签到" };
   }
-  const firstState = tools.toText(signResp?.result?.state);
-  if (firstState === "ignore") return { ok: true, message: "今日已签到" };
-  await tools.sleep(800);
-  const finalPayload = await client.getJson(PATH_STATE);
-  const status = tools.toText(finalPayload?.status);
-  const result = finalPayload?.result || {};
-  const state = tools.toText(result.state);
-  if (status === OK_STATE && (state === OK_STATE || state === "ignore")) {
-    const parts = [];
-    if (result.sign_in_coin) parts.push(`+${result.sign_in_coin}H币`);
-    if (result.sign_in_exp) parts.push(`+${result.sign_in_exp}经验`);
-    if (result.sign_in_streak) parts.push(`连签${result.sign_in_streak}天`);
-    return { ok: true, message: parts.length ? parts.join(" ") : "签到完成" };
+
+  // 服务端结算是异步的：刚签完立刻回查常常还是 waiting。
+  // 之前只 sleep 800ms 就下结论，会出现「实际已签到、脚本却报未完成」的假失败。
+  let final = await waitSignState(client, SIGN_POLL_DELAYS);
+  if (!isSignFinished(final)) {
+    // 仍未确认：再签一次（已签过会返回 ignore），随后继续等
+    const retry = await client.getJson(PATH_SIGN);
+    const retryState = tools.toText(retry?.result?.state);
+    if (isOkPayload(retry) && retryState === "ignore") {
+      final = { status: OK_STATE, state: retryState, result: final?.result || {} };
+    } else {
+      final = (await waitSignState(client, SIGN_POLL_DELAYS)) || final;
+    }
   }
-  return { ok: false, message: responseFailure(tools.toText(finalPayload?.msg) || state || "签到失败", finalPayload) };
+
+  if (isSignFinished(final)) {
+    // 签到状态先 ok、任务列表后刷新，多等一会儿避免下一步回查任务时误判
+    await tools.sleep(SIGN_SETTLE_MS);
+    const reward = signRewardText(final.result);
+    return { ok: true, message: reward || "签到完成" };
+  }
+
+  const detail = `sign=${signState || signResp?.status || "空"} state=${final?.state || "未知"}`;
+  return {
+    ok: false,
+    message: responseFailure(`签到未确认（${detail}，服务端可能仍在结算，请稍后复查）`, final?.payload || signResp),
+  };
 }
 
 async function executeSharePost(task, client, fetchSnapshotFn) {
