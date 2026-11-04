@@ -54,8 +54,6 @@ def load_config():
         with io.open(LOCAL_CONFIG_PATH, encoding="utf-8") as fh:
             cfg.update(json.load(fh))
     token = os.environ.get("GITHUB_PAT") or cfg.get("token") or ""
-    if not token:
-        raise SystemExit("缺少 GitHub token（config.json 的 token 或环境变量 GITHUB_PAT）")
     cfg["token"] = token
     cfg.setdefault("ref", "main")
     cfg.setdefault("timezone_offset_hours", 8)
@@ -212,18 +210,22 @@ def sign_verdict(summary, logs):
     return False, "日志里找不到签到成功的证据"
 
 
-def main():
-    try:
-        cfg = load_config()
-    except SystemExit as error:
-        print(f"STATUS: ERROR\nREASON: {error}")
-        return EXIT_ERROR
+AUTH_ERROR_HINTS = ("HTTP 401", "HTTP 403", "Bad credentials", "Resource not accessible")
+# 触发了却等不到运行记录：Actions 队列可能拥堵，不能干等，直接转本地签到
+QUEUE_STALL_HINTS = ("没等到新的运行记录",)
 
-    try:
-        runs = list_runs(cfg)
-    except RuntimeError as error:
-        print(f"STATUS: ERROR\nREASON: {error}")
-        return EXIT_ERROR
+
+def fallback(reason):
+    """Actions 链路不可用时统一出口：让上层去跑本地签到，而不是干等。"""
+    print("STATUS: FALLBACK")
+    print(f"REASON: {reason}")
+    print("---- SUMMARY ----")
+    print("（Actions 链路不可用，未取到运行摘要；以本地签到结果为准）")
+    return EXIT_FALLBACK
+
+
+def run_check(cfg):
+    runs = list_runs(cfg)
 
     today = datetime.now(timezone(timedelta(hours=cfg["timezone_offset_hours"]))).strftime("%Y-%m-%d")
     todays = [run for run in runs if cst_date(cfg, run.get("created_at")) == today]
@@ -270,6 +272,30 @@ def main():
     print("---- SUMMARY ----")
     print(summary or "（无摘要）")
     return EXIT_FALLBACK
+
+
+def main():
+    try:
+        cfg = load_config()
+    except SystemExit as error:
+        print(f"STATUS: ERROR\nREASON: {error}")
+        return EXIT_ERROR
+
+    # 没 token 就等于看不见 Actions，直接转本地签到，避免当天漏签
+    if not cfg.get("token"):
+        return fallback("缺少 GitHub token（config.local.json 或环境变量 GITHUB_PAT），无法检查 Actions 状态")
+
+    try:
+        return run_check(cfg)
+    except RuntimeError as error:
+        # 接口报错体里可能带多行 JSON，压成一行再输出
+        message = " ".join(str(error).split())
+        if any(hint in message for hint in AUTH_ERROR_HINTS):
+            return fallback(f"GitHub 鉴权失败：{message}（token 可能已过期或被撤销）")
+        if any(hint in message for hint in QUEUE_STALL_HINTS):
+            return fallback(f"Actions 未能及时起跑：{message}")
+        print(f"STATUS: ERROR\nREASON: {message}")
+        return EXIT_ERROR
 
 
 if __name__ == "__main__":

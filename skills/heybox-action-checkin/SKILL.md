@@ -26,12 +26,21 @@ stdout 固定三段：`STATUS:` / `RUN:` / `---- SUMMARY ----` 加上摘要正�
 | --- | --- | --- | --- |
 | `OK` | 0 | 今天已有成功运行，未重复触发 | 直接把摘要报给用户 |
 | `RETRIGGERED` | 0 | 原本没有今天的运行或上次失败，已补触发且签到成功 | 汇报时说明「已自动补触发」 |
-| `FALLBACK` | 1 | Actions 最终没签到成功，或判定签到未完成 | **立即加载 heybox-sign 技能本地补签**，见下节 |
-| `ERROR` | 2 | token 失效、网络异常、配置缺失 | 原样转述 `REASON`，不要盲目重试 |
+| `FALLBACK` | 1 | Actions 这条路没签到成功，或根本用不了（token 401/403、缺 token、触发后没起跑、签到未确认） | **立即加载 heybox-sign 技能本地补签**，见下节 |
+| `ERROR` | 2 | 网络异常或配置错误（如 `repo`/`workflow_file` 写错导致 404） | 原样转述 `REASON`，不要盲目重试 |
 
 判定依据是日志里出现 `签到: 已完成`、`今日已签到`、`**✅ 签到成功**`；出现 `签到: 未完成` / `签到未确认` 一律算失败。
 
 ## FALLBACK 的标准处理
+
+`FALLBACK` 覆盖四类情况，处理方式相同——都去本地补签，不要让当天漏签：
+
+| 触发场景 | 说明 |
+| --- | --- |
+| 运行完成但签到未确认 | 日志出现 `签到: 未完成` / `签到未确认` |
+| GitHub 鉴权失败 | token 401/403，或压根没配 token |
+| 触发后没起跑 | 已 dispatch 但等不到运行记录（队列拥堵） |
+| 找不到签到证据 | 日志与摘要里都没有签到成功痕迹 |
 
 1. 调用 Skill 工具加载 `heybox-sign`，按其说明执行本地签到（`node ~/.workbuddy/skills/heybox-sign/scripts/sign_runner.js`）。
 2. 汇报里把两条链路都说清楚：Actions 的 `RUN` 号与失败原因 + 本地签到的 `status` 与奖励。
@@ -59,11 +68,12 @@ stdout 固定三段：`STATUS:` / `RUN:` / `---- SUMMARY ----` 加上摘要正�
 
 ## 排障
 
-- **401**：PAT 过期或被撤销。该 token 到期日约 2026-12-03，到期后 cron-job.org 与本巡检都会失效，需重新生成并同时更新 `config.json` 与 cron-job.org 的 header。
+- **401 / 403**：PAT 过期或被撤销。脚本**会自动降级为 `FALLBACK` 让你本地补签**，不会当天漏签；事后仍需去 GitHub 重新生成 token 并同时更新 `config.local.json` 与 cron-job.org 的 header（该 token 到期日约 2026-12-03）。
+- **缺 token**：直接 `FALLBACK`，不阻塞当天签到。
 - **404**：`repo` / `workflow_file` 写错。
 - **已触发但等不到记录**：GitHub 队列拥堵，调大 `dispatch_wait_seconds` 或稍后重跑。
 - **摘要为空但状态 OK**：日志下载失败或步骤被改名；脚本会打印提示，不算失败。
-- **为什么不用 GitHub 自带 cron**：该仓库是 fork，`schedule` 实测不触发（01:30 / 01:58 / 02:15 UTC 三个点验证过），触发由 cron-job.org 与本技能负责。
+- **GitHub 自带 cron 只当兜底**：仓库是 fork，`schedule` 确实会触发，但实测会**迟到 6~7 小时**（01:30 UTC 的 cron 到 07:46 才跑）。准点触发交给 cron-job.org（`30 9 * * *`，Asia/Shanghai）；迟到那次通常只会读到「已签到」，属无害重复。
 
 ## 约束
 
